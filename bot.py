@@ -1,29 +1,31 @@
-import discord, os, threading
+import discord, os, json, asyncio
 from feed import Feed
-from feed_item import FeedItem
 
-channels = [
-  "856631760132505604"
-]
+guilds = None
+with open("guilds.json", 'r') as file:
+  guilds = json.load(file)
+  file.close()
 
 class Bot(discord.Client):
   async def on_ready(self):
-    print("Logged on as {0}!".format(self.user))
+    print(f"[LOG] ({self.user}): Logged in!")
     await schedule()
 
 async def schedule():
   await fetch()
-  threading.Timer(60, schedule).start()
+  await asyncio.sleep(60 * 30)
+  await schedule()
 
 async def fetch():
   feed = Feed("https://www.omgubuntu.co.uk/feed")
   item = feed.fetch()
 
   if item != None:
-    for id in channels:
+    for guild in guilds['guilds']:
       try:
-        channel = await client.fetch_channel(id)
-        
+        channelObj = await client.fetch_channel(guild['channel'])
+        guildObj = await client.fetch_guild(guild['id'])
+
         embed = discord.Embed()
         embed.title = item.get_title()
         embed.url = item.get_link()
@@ -31,14 +33,22 @@ async def fetch():
         embed.set_image(url = item.get_image())
         embed.description = item.get_summary()
 
-        await channel.send("<@&856667771446493225>", embed = embed)
+        if guild['role']:
+          roles = await guildObj.fetch_roles()
+          role = [r for r in roles if r.id == guild['role']]
+          
+          if len(role): 
+            await channelObj.send(role[0].mention, embed = embed)
+          else:
+            await channelObj.send(embed = embed)
+        else:
+          await channelObj.send(embed = embed)
 
-      except (discord.HTTPException, discord.NotFound):
-        print(f"[ERROR] ({id}): {str(e)}")
-      except (discord.Forbidden) as e:
-        print(f"[ERROR] ({id}): {str(e)}")
-      except (AttributeError) as e:
-        print(f"[ERROR] ({id}): {str(e)}")
+        print(f"[LOG] ({guild['channel']}): Successfully sent message.")
+
+      except Exception as e:
+        print(f"[ERR] ({guild['channel']}): {e}")
+        continue
 
 client = Bot()
 client.run(os.environ.get("BOT_TOKEN"))
